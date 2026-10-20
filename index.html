@@ -130,6 +130,21 @@ section{position:relative;z-index:1;padding-block:56px 8px}
 .art.slot .ph{width:100%;height:100%;border:2px dashed var(--muted);border-radius:8px;display:grid;place-content:center;justify-items:center;gap:6px;color:var(--muted);text-align:center}
 .art.slot .ph svg{width:42px;height:42px;animation:bob 3s ease-in-out infinite}
 .art.slot img{width:100%;height:100%;object-fit:cover;display:block;border-radius:8px;border:2px solid var(--ink)}
+.art img.pimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;user-select:none;-webkit-user-drag:none}
+.art.has .ph{display:none}
+.art.has{padding:0}
+.tools{position:absolute;left:8px;right:8px;bottom:8px;z-index:3;display:none;flex-wrap:wrap;gap:6px 8px;align-items:center;background:var(--surface);border:2px solid var(--ink);border-radius:8px;padding:6px 8px;font-size:.78rem}
+body.editing .tools{display:flex}
+.tools button{font:600 .74rem var(--f-body);padding:4px 9px;border-radius:6px;border:2px solid var(--ink);background:var(--bg);color:var(--ink);cursor:pointer}
+.tools button.up{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.tools label{display:flex;align-items:center;gap:6px;font:500 .72rem var(--f-mono);color:var(--muted)}
+.tools input[type=range]{width:84px;accent-color:var(--hot)}
+.tools .msg{flex-basis:100%;font:500 .68rem var(--f-mono);color:var(--hot)}
+body.editing .art{outline:2px dashed var(--hot);outline-offset:-6px}
+body.editing .art.has{cursor:grab}
+body.editing .art.has .pimg{touch-action:none}
+body.editing .art.slot{cursor:pointer}
+.tg.on{background:var(--hot);border-color:var(--hot);color:#fff}
 .tbd{color:var(--muted);font-style:italic}
 .links{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .links a{font:600 .82rem var(--f-body);text-decoration:none;padding:7px 13px;border-radius:7px;border:2px solid var(--ink);background:var(--surface);transition:transform .15s,box-shadow .15s}
@@ -219,6 +234,7 @@ footer{padding-block:34px 44px;color:var(--muted);display:flex;justify-content:s
   <nav>
     <span class="brand">N.<b>PINE</b></span>
     <a class="l" href="#projects">Projects</a><a class="l" href="#skills">Skills</a><a class="l" href="#path">Path</a><a class="l" href="#contact">Contact</a>
+    <button class="tg" id="ed" type="button" aria-pressed="false">Edit photos</button>
     <button class="tg" id="tg" type="button" aria-label="Toggle light and dark theme">theme</button>
   </nav>
 
@@ -372,17 +388,101 @@ footer{padding-block:34px 44px;color:var(--muted);display:flex;justify-content:s
     3:{github:"https://github.com/njesseP/Faceguard"},
     4:{github:"https://github.com/njesseP/Photo_booth"}
   };
-  // Project photos: paste an image address (or data: URI) between the quotes to replace the blank slot.
+  // Project photos: paste an image address (or data: URI) between the quotes to set a default.
   var PROJECT_PHOTOS={1:"img/transactify_photo.PNG",2:"",3:"img/fceguard.PNG",4:"img/photobooth.PNG"};
-  document.querySelectorAll("article[data-i]").forEach(function(a){
-    var src=PROJECT_PHOTOS[a.getAttribute("data-i")],slot=a.querySelector("[data-photo]");
-    if(src&&slot){
-      var blank=slot.innerHTML,im=new Image();
-      im.alt="Screenshot of "+a.querySelector("h3").textContent;
-      im.onload=function(){slot.classList.remove("slot");slot.innerHTML="";slot.appendChild(im)};
-      im.onerror=function(){/* image missing: keep the blank slot */};
-      im.src=src;
+  // Photos you add with "Edit photos" are saved in this browser only.
+  var KEY="pf-photos-v1",saved={};
+  try{saved=JSON.parse(localStorage.getItem(KEY)||"{}")||{}}catch(e){saved={}}
+  function persist(a){
+    try{localStorage.setItem(KEY,JSON.stringify(saved))}
+    catch(e){say(a,"Could not save here. Try a smaller photo.")}
+  }
+  function say(a,t){var m=a.querySelector(".msg");if(m){m.textContent=t;clearTimeout(m._t);m._t=setTimeout(function(){m.textContent=""},3500)}}
+  function stateOf(i){
+    if(Object.prototype.hasOwnProperty.call(saved,i))return saved[i]&&saved[i].src?saved[i]:null;
+    return PROJECT_PHOTOS[i]?{src:PROJECT_PHOTOS[i],z:1,x:50,y:50}:null;
+  }
+  function paint(a){
+    var i=a.getAttribute("data-i"),art=a.querySelector("[data-photo]"),st=stateOf(i),img=art.querySelector(".pimg");
+    if(st){
+      if(!img){
+        img=new Image();img.className="pimg";img.draggable=false;
+        img.alt="Screenshot of "+a.querySelector("h3").textContent;
+        img.onerror=function(){img.remove();art.classList.remove("has");art.classList.add("slot")};
+        art.insertBefore(img,art.firstChild);
+      }
+      if(img.getAttribute("src")!==st.src)img.src=st.src;
+      img.style.objectPosition=st.x+"% "+st.y+"%";
+      img.style.transformOrigin=st.x+"% "+st.y+"%";
+      img.style.transform="scale("+st.z+")";
+      art.classList.add("has");art.classList.remove("slot");
+    }else{
+      if(img)img.remove();
+      art.classList.remove("has");art.classList.add("slot");
     }
+    var r=a.querySelector(".tools input[type=range]");if(r)r.value=st?st.z:1;
+  }
+  function shrink(file,cb){
+    var fr=new FileReader();
+    fr.onload=function(){
+      var im=new Image();
+      im.onload=function(){
+        var k=Math.min(1,1400/Math.max(im.width,im.height)),c=document.createElement("canvas");
+        c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
+        c.getContext("2d").drawImage(im,0,0,c.width,c.height);
+        cb(c.toDataURL("image/jpeg",.85));
+      };
+      im.onerror=function(){cb(null)};
+      im.src=fr.result;
+    };
+    fr.onerror=function(){cb(null)};
+    fr.readAsDataURL(file);
+  }
+  document.querySelectorAll("article[data-i]").forEach(function(a){
+    var i=a.getAttribute("data-i"),art=a.querySelector("[data-photo]");
+    art.insertAdjacentHTML("beforeend",'<div class="tools"><button type="button" class="up">Upload</button><label>Zoom <input type="range" min="1" max="3" step="0.05" value="1" aria-label="Zoom photo"></label><button type="button" data-a="reset">Reset</button><button type="button" data-a="rm">Remove</button><span class="msg" aria-live="polite">Drag the photo to reposition it.</span></div><input type="file" accept="image/*" hidden>');
+    var file=art.querySelector("input[type=file]"),tools=art.querySelector(".tools"),zoom=tools.querySelector("input");
+    function pick(){file.click()}
+    tools.querySelector(".up").addEventListener("click",pick);
+    file.addEventListener("change",function(){
+      var f=file.files&&file.files[0];if(!f)return;
+      shrink(f,function(d){
+        if(!d){say(a,"That file could not be read as an image.");return}
+        saved[i]={src:d,z:1,x:50,y:50};persist(a);paint(a);say(a,"Photo added. Drag to reposition.");
+      });
+      file.value="";
+    });
+    zoom.addEventListener("input",function(){var st=stateOf(i);if(!st)return;st=Object.assign({},st,{z:+zoom.value});saved[i]=st;paint(a)});
+    zoom.addEventListener("change",function(){persist(a)});
+    tools.querySelector("[data-a=reset]").addEventListener("click",function(){var st=stateOf(i);if(!st)return;saved[i]=Object.assign({},st,{z:1,x:50,y:50});persist(a);paint(a)});
+    tools.querySelector("[data-a=rm]").addEventListener("click",function(){saved[i]={src:""};persist(a);paint(a)});
+    art.addEventListener("click",function(e){
+      if(document.body.classList.contains("editing")&&art.classList.contains("slot")&&!e.target.closest(".tools"))pick();
+    });
+    // drag to reposition
+    var drag=null;
+    art.addEventListener("pointerdown",function(e){
+      var st=stateOf(i);
+      if(!document.body.classList.contains("editing")||!st||e.target.closest(".tools"))return;
+      drag={sx:e.clientX,sy:e.clientY,x:st.x,y:st.y,w:art.clientWidth,h:art.clientHeight};
+      try{art.setPointerCapture(e.pointerId)}catch(_){}
+      art.style.cursor="grabbing";
+    });
+    art.addEventListener("pointermove",function(e){
+      if(!drag)return;
+      var st=stateOf(i),cl=function(v){return Math.max(0,Math.min(100,v))};
+      saved[i]=Object.assign({},st,{x:Math.round(cl(drag.x-(e.clientX-drag.sx)/drag.w*100)),y:Math.round(cl(drag.y-(e.clientY-drag.sy)/drag.h*100))});
+      paint(a);
+    });
+    function end(){if(!drag)return;drag=null;art.style.cursor="";persist(a)}
+    art.addEventListener("pointerup",end);art.addEventListener("pointercancel",end);
+    paint(a);
+  });
+  var ed=document.getElementById("ed");
+  ed.addEventListener("click",function(){
+    var on=document.body.classList.toggle("editing");
+    ed.classList.toggle("on",on);ed.setAttribute("aria-pressed",on);ed.textContent=on?"Done":"Edit photos";
+    document.querySelectorAll("[data-tilt]").forEach(function(c){c.style.transform=""});
   });
   document.querySelectorAll("article[data-i]").forEach(function(a){
     var box=a.querySelector("[data-links]"),c=PROJECT_LINKS[a.getAttribute("data-i")]||{},h="";
@@ -425,7 +525,7 @@ footer{padding-block:34px 44px;color:var(--muted);display:flex;justify-content:s
     window.addEventListener("pointermove",function(e){glow.style.left=e.clientX+"px";glow.style.top=e.clientY+"px"});
     document.querySelectorAll("[data-tilt]").forEach(function(c){
       c.addEventListener("pointermove",function(e){
-        var r=c.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;
+        if(document.body.classList.contains("editing"))return;var r=c.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;
         c.style.transform="perspective(900px) rotateY("+(x*5)+"deg) rotateX("+(-y*5)+"deg) translateY(-4px)";
       });
       c.addEventListener("pointerleave",function(){c.style.transform=""});
